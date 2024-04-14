@@ -1,10 +1,15 @@
 import express from 'express';
-import mongoose from 'mongoose';
-import { registerValidator, loginValidator, postCreateValidator } from './validations.js';
-import chcekAuth from './utils/chcekAuth.js';
+import fs from 'fs';
+import multer from 'multer';
+import cors from 'cors';
 
-import * as UserController from './controllers/UserController.js';
-import * as PostController from './controllers/PostController.js';
+import mongoose from 'mongoose';
+
+import { registerValidation, loginValidation, postCreateValidation } from './validations.js';
+
+import { handleValidationErrors, checkAuth } from './utils/index.js';
+
+import { UserController, PostController } from './controllers/index.js';
 
 mongoose
 .connect('mongodb+srv://ivanfilipchukp:lR6dldV0WctmVhIi@cluster0.cw2dupb.mongodb.net/')
@@ -13,25 +18,53 @@ mongoose
 
 const app = express();
 
-app.use(express.json());
-
-app.post('/auth/login', loginValidator, UserController.login);
-app.post('/auth/register', registerValidator, UserController.register);
-app.get('/auth/me', chcekAuth, UserController.getMe);
-
-app.get('/posts', PostController.getAll);
-app.get('/posts/:id', PostController.getOne);
-//app.post('/posts', PostController.create);
-// app.delete('/posts', PostController.remove);
-// app.patch('/posts', PostController.update);
-
-app.post('/posts', chcekAuth, postCreateValidator, PostController.create);
-
-
-app.listen(4444, (err) => {
-    if (err){
-        return console.log(err);
+const storage = multer.diskStorage({
+    destination: (_, __, cb) => {
+      if (!fs.existsSync('uploads')) {
+        fs.mkdirSync('uploads');
+      }
+      cb(null, 'uploads');
+    },
+    filename: (_, file, cb) => {
+      cb(null, file.originalname);
+    },
+  });
+  
+  const upload = multer({ storage });
+  
+  app.use(express.json());
+  app.use(cors());
+  app.use('/uploads', express.static('uploads'));
+  
+  app.post('/auth/login', loginValidation, handleValidationErrors, UserController.login);
+  app.post('/auth/register', registerValidation, handleValidationErrors, UserController.register);
+  app.get('/auth/me', checkAuth, UserController.getMe);
+  
+  app.post('/upload', checkAuth, upload.single('image'), (req, res) => {
+    res.json({
+      url: `/uploads/${req.file.originalname}`,
+    });
+  });
+  
+  app.get('/tags', PostController.getLastTags);
+  
+  app.get('/posts', PostController.getAll);
+  app.get('/posts/tags', PostController.getLastTags);
+  app.get('/posts/:id', PostController.getOne);
+  app.post('/posts', checkAuth, postCreateValidation, handleValidationErrors, PostController.create);
+  app.delete('/posts/:id', checkAuth, PostController.remove);
+  app.patch(
+    '/posts/:id',
+    checkAuth,
+    postCreateValidation,
+    handleValidationErrors,
+    PostController.update,
+  );
+  
+  app.listen(process.env.PORT || 4444, (err) => {
+    if (err) {
+      return console.log(err);
     }
-    console.log('Server OK')
-
-});
+  
+    console.log('Server OK');
+  });
